@@ -9,6 +9,7 @@
 一开始是个空对象
 - 根据事件类型获取对应的listener，是针对全局的、顶层的listener，
 
+
 ```
 case DiscreteEvent:
       listener = dispatchDiscreteEvent.bind(null, topLevelType, PLUGIN_EVENT_SYSTEM, container);
@@ -24,6 +25,7 @@ case DiscreteEvent:
       break;
 ```
 - 增加顶层事件监听
+
 ```
 // element一般就是document
 element.addEventListener(eventType, listener, false);
@@ -46,3 +48,13 @@ handleTopLevel
 ### 3、队列执行
 ## 事件清理
 - 未使用event.persistent()的，调用析构函数将合成事件对象的属性均置为空，然后push回对象池
+
+
+## 总结
+- 顶层document监听事件，监听函数是dispatchEvent
+- dispatchEvent负责事件执行
+	- 从事件池中获取一个事件对象 
+	- 获取target，给事件对象赋值
+	- 从子节点往根节点收集监听函数和对应的触发节点，存在数组里
+	- 执行的时候，遍历数组
+- 事件清理

@@ -18,7 +18,8 @@
 		- EnvironmentPlugin:挂载process.ENV.xxxx 
 - 处理用户自定义插件：遍历config.plugin字段
 	- plugin入参和this都是前面new出来的compiler 
-	- 调用插件的apply方法，apply方法里面有tap
+	- 调用插件的app
+	- ly方法，apply方法里面有tap
 	
 	```
 		if (typeof plugin === "function") {
@@ -110,6 +111,7 @@ webpack/lib/Compiler.js (run > this.compile)
 	- 入口也作为一个依赖`dependency`，由SingleEntryPlugin.createDependency创建（返回的是SingleEntryDependency）
 	- compilation.addEntry从入口这个dependency开始处理
 		- 对于入口文件来说还会执行this._preparedEntrypoints.push(slot); 
+		
 ```
 const slot = {
 			name: name,
@@ -161,7 +163,7 @@ const slot = {
 - 调用loader处理module(runLoader)
 	- step1：构建loader上下文
 		- loader context:就是一个封装了一系列函数的对象(包括emitFile发送文件、执行函数exec、错误报告)
-	- step2：引入loader包require(loader.path)
+	- step2：引入loader包:require(loader.path)
 	- step3：运行loader，得到一个result，有如下关键属性
 		- resourceBuffer：二进制源码
 		- source:loader解析后的源码，去掉了export、import的
@@ -343,18 +345,55 @@ const slot = {
 - 调用编译完成钩子
 compiler.hooks.afterCompile
 
+STEP4：最终生成文件介绍
+
+- 整体来看：是一个立即执行函数
+	- 入参： 
+		- modules数组，由module对象组成
+		- module对象key为文件路径，value是一个函数，函数体是该模块的代码
+		
+- 代码加载到浏览器以后，从入口模块开始执行
+	- 调用__webpack_require__
+		- 读取Map中的对象，执行对应的函数
+		- 加载过的模块存到installedModules中
+		
+- 异步方法：
+	- 单独打成一个包
+	- 用户触发加载动作时
+		- step1: 动态地在head标签中创建一个script标签，然后发送一个http请求加载模块
+		- step2: 模块加载完成以后，自动执行其中代码
+		- step3: 更改缓存中模块的状态
 
 
 
 
-
-
-
-
-
-
-
-
+## 总结
+### 初始化
+- 参数合并与处理
+- 创建compiler对象
+- 挂载plugin
+	- environmentPlugin初始化文件系统 
+- 触发钩子运行编译
+	- compiler.hooks.run
+	
+### build阶段
+- 调用compilation钩子
+- 创建compilation对象
+	- chunks数组
+	- modules数组
+- 针对入口类型，创建对应的plugin
+	- 单入口对应SingleEntryPlugin，里面监听了make钩子  
+- 触发make钩子
+- 创建入口module
+	- NormalModule
+- 调用loader解析文件
+	- 初始化loader上下文
+	- require loader
+	- 执行loader，得到的结果：二进制的source，source，sourceMap
+- 调用acorn解析AST，找到依赖的模块 和 代码出现的位置
+- 递归解析模块，将收集到的依赖文件都存入modules数组
+### 生成最终文件
+## 
 
 
 

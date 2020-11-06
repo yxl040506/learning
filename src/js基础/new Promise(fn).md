@@ -1,14 +1,29 @@
 Promise原理
 https://zhuanlan.zhihu.com/p/83965949
-# new Promise((resolve, reject)=>{})
-fn入参是resolve、reject
-立即执行传入的函数fn
-fn函数里可以访问到api传入的resolve, reject（fn的入参是api传入的resolve和reject）
-用户自行调用resolve和reject，对Promise的状态进行转移。
-初始的Promise的状态是pending，可转移成rejected或fullfilled
+# new的时候
+new Promise(fn)
+- 给用户传递内部的2个参数，一个this.onFullfilled, 一个this.onRejected
 
-# then((onFullFilled, onRejected)=>{})
-fn入参是value，初始promise用户自己resolve的值 或者上一个 thenPromise返回的值（由api内部自己resolve）
-给promise的回调函数队列推入一个回调函数fn
-当且仅当promise的状态变化时，将执行回调函数队列里的回调函数（称为foo）
-then返回一个新的Promise，有自己的状态转移，状态转移在回调函数foo中进行，也就是在回调函数中一定要调用这个Promise的resolve或者reject，否则then()无法进行链式调用，也即是then().then()里的第二个then无法被调用。
+# this.onFullfilled & this.onRejected
+- 进行状态转移
+	- 接受用户传进来的result
+- 调用then回调函数
+	- setTimeout(this.flushCbQueue, 0)
+
+# then函数
+- 接受用户传进来
+- 返回一个子promise
+- promise里执行
+	- 父Promise如果是pending：往cb数组里push一个cb
+	- 父Promise如果是resolved或rejected：执行该cb（只执行这一个） 
+
+# 执行then里的回调函数
+- 何时执行？
+	- 父Promise状态不为Pending时，就调用
+- 目的是要推进子promise的状态变化
+	- 也就是我们要调用promise的resolve或reject 
+- 如何调用？
+	- 父Promise为Resolved时，就调用子promise的resolve方法
+		- 如果用户没有传then参数，则resolve的值是父Promise resolve的值：resolve(result)
+		- 如果用户传了then的第一个参数onFullfiled，则resolve(onFullfiled(result))
+	- 父Promise为Rejected时，就调用onRejected

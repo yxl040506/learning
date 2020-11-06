@@ -18,42 +18,6 @@ https://react.iamkasong.com/
 		- 将子孙dom插入到当前dom下，得到一个离屏的dom树
 		- 初始化监听事件等属性
 	- update：
-		- updateQueue	: 
-			- 对于原生节点HostComponent：diff节点的props收集成一个workInProgress.updateQueue，需要更新的属性key和value
-			- 对于ClassComponent和HostRoot：会在setState的时候，就会创建一个update并入队列
-			
-		```
-		Component.prototype.setState = function (partialState, callback) {
- 			// ...
-  			this.updater.enqueueSetState(this, partialState, callback, 'setState');
-		};
-		
-		enqueueSetState(inst, payload, callback) {
-		  // 通过组件实例获取对应fiber
-		  const fiber = getInstance(inst);
-		
-		  const eventTime = requestEventTime();
-		  const suspenseConfig = requestCurrentSuspenseConfig();
-		
-		  // 获取优先级
-		  const lane = requestUpdateLane(fiber, suspenseConfig);
-
-		  // 创建update
-		  const update = createUpdate(eventTime, lane, suspenseConfig);
-		
-		  update.payload = payload;
-		
-		  // 赋值回调函数
-		  if (callback !== undefined && callback !== null) {
-		    update.callback = callback;
-		  }
-		
-		  // 将update插入updateQueue
-		  enqueueUpdate(fiber, update);
-		  // 调度update
-		  scheduleUpdateOnFiber(fiber, lane, eventTime);
-		}
-		```
 		- 收集effectList
 			- effectList中保存了需要执行副作用的Fiber节点。
 			- 其中副作用包括
@@ -93,7 +57,7 @@ https://react.iamkasong.com/
 	- 由于completeWork属于“归”阶段调用的函数，每次调用appendAllChildren时都会将已生成的子孙DOM节点插入当前生成的DOM节点下。那么当“归”到rootFiber时，我们已经有一个构建好的离屏DOM树。
 
 ## 五、effectList
-- render阶段会收集effectList，用于commit阶段的具体dom操作
+- render的completeWork阶段会收集effectList，用于commit阶段的具体dom操作
 - effectList是由fiber节点组成的：每个执行完completeWork且存在effectTag的Fiber节点会被保存在一条被称为effectList的单向链表中。
 
 ```
@@ -173,6 +137,42 @@ ReactDOM.render(<App/>, document.getElementById('app'));
 但是useEffect则能看到0的出现
 
 # UpdateQueue
+## updateQueue的创建	: 
+- 对于原生节点HostComponent：diff节点的props收集成一个workInProgress.updateQueue，需要更新的属性key和value
+			- 对于ClassComponent和HostRoot：会在setState的时候，就会创建一个update并入队列
+			
+		```
+		Component.prototype.setState = function (partialState, callback) {
+ 			// ...
+  			this.updater.enqueueSetState(this, partialState, callback, 'setState');
+		};
+		
+		enqueueSetState(inst, payload, callback) {
+		  // 通过组件实例获取对应fiber
+		  const fiber = getInstance(inst);
+		
+		  const eventTime = requestEventTime();
+		  const suspenseConfig = requestCurrentSuspenseConfig();
+		
+		  // 获取优先级
+		  const lane = requestUpdateLane(fiber, suspenseConfig);
+
+		  // 创建update
+		  const update = createUpdate(eventTime, lane, suspenseConfig);
+		
+		  update.payload = payload;
+		
+		  // 赋值回调函数
+		  if (callback !== undefined && callback !== null) {
+		    update.callback = callback;
+		  }
+		
+		  // 将update插入updateQueue
+		  enqueueUpdate(fiber, update);
+		  // 调度update
+		  scheduleUpdateOnFiber(fiber, lane, eventTime);
+		}
+		```
 ## 为什么UpdateQueue会有多个update
 - 多次setState
 
@@ -188,35 +188,31 @@ onClick() {
 }
 ```
 
-## Fiber节点和UpdateQueue的关系
-- 一个Fiber节点同时最多存在2个UpdateQueue
-	- current fiber保存的updateQueue
-	- workInProgress fiber保存的updateQueue
-	- 当commit完成时，会将workInPrgress fiber的updateQueue赋值给current fiber的updateQueue
-- UpdateQueue的数据结构
-
-```
-{
-		 // 本次更新前的旧state
-		 baseState: fiber.memoizedState,
-		 // 链表头
-	    firstBaseUpdate: null,
-	    // 链表尾
-	    lastBaseUpdate: null,
-	    shared: {
-	      pending: null,
-	    },
-	    effects: null,
-}
-```
-
-- shared.pending：
-	- 触发更新时，产生的Update会保存在shared.pending中形成单向环状链表。
-	- 当由Update计算state时这个环会被剪开并连接在lastBaseUpdate后面。
 - 更新前UpdateQueue就存在Update？
 	- 是由于某些Update优先级较低所以在上次render阶段由Update计算state时被跳过。
 
+- 流程详解：
 
+	```
+		classComponent和functionComponent的updateQueue数据结构：
+		const queue: UpdateQueue<State> = {
+				    baseState: fiber.memoizedState, // 本次更新前该节点的state
+				    firstBaseUpdate: null, // 链表尾
+				    lastBaseUpdate: null, // 链表头
+				    shared: {
+				      pending: null, // 触发更新时，产生的环状单向链表
+				    },
+				    effects: null,
+  		};
+	```
+	
+	- STEP1： 触发更新，产生新的Update构成环状链表，shared.pending为环状链表的表头
+	- STEP2：更新调度完成后，进入render阶段
+		- shared.pending环被剪开，并连接在updateQueue.lasetBaseUpdate后面
+		updateQueue.baseUpdate得到了更新
+	- STEP3： 遍历updateQueue.baseUpdate，计算得出新的state
+	- STEP4：state的变化，会在render阶段产生不同element，diff之后得到effectTag
+	
 ```
 // baseUpdate
 fiber.updateQueue.baseUpdate: u1 --> u2
@@ -235,6 +231,14 @@ fiber.updateQueue.baseUpdate: u1 --> u2 --> u3 --> u4
 
 遍历此时的baseUpadte，根据每个update计算出最新的state（优先级低的状态会被跳过），也叫做memoizedState                             
 ```
+
+## Fiber节点和UpdateQueue的关系
+- 一个Fiber节点同时最多存在2个UpdateQueue
+	- current fiber保存的updateQueue
+	- workInProgress fiber保存的updateQueue
+	- 当commit完成时，会将workInPrgress fiber的updateQueue赋值给current fiber的updateQueue
+
+
 
 # 为什么componentWillXXX不安全？
 首次渲染时，优先级不够的更新会被跳过。
@@ -259,4 +263,40 @@ baseState: 'A'
 baseUpdate: B2 --> C1 --> D2
 render阶段使用的Update: [B2, C1, D2]
 memoizedState: 'ABCD'
+```
+
+
+
+
+
+## 总结
+
+```
+Render	                                  
+1、beginWork                            
+	由根至叶子节点深度优先遍历					
+	创建或复用子节点							
+	如果是update，进行updateQueue的处理和state计算，得到新的state，diff之后打上effectTag	
+												
+2、completeWork								
+mount: 创建dom，给stateNode赋值				
+update：										
+						
+	收集effectList							
+	
+```
+```
+Commit	                                  
+1、beforeMutation(dom操作之前)                           
+	调用getSnapshotBeforeUpdate			
+	调度useEffect
+												
+2、mutation（执行dom操作）						
+	遍历effectList，操作dom
+	如果tag为update，根据updateQueue来执行更新操作（？）
+3、layout（可以访问最新的dom了）	
+	调用componentDidMount或componentDidUpdate
+	调用useLayoutEffect
+	调用setState的回调函数
+	
 ```
